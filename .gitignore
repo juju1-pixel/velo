@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# Native iOS build output and per-user Xcode state
+ios/.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Local secrets and signing material
+.env*
+*.pem
+*.p12
+*.mobileprovision
+
+# Internal notes that must not go to a public repository
+WEBVIEW改动说明.md
+PROJECT_HANDOFF.md
+ios/FEEDBACK_WEBVIEW.md
