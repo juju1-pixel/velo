@@ -3,18 +3,31 @@ import WebKit
 
 struct FeedbackWebView: View {
     @StateObject private var state: FeedbackWebState
+    private let inset: Bool
 
-    init(url: URL, refreshDestination: @escaping @MainActor () async -> URL?) {
-        _state = StateObject(wrappedValue: FeedbackWebState(url: url, refreshDestination: refreshDestination))
+    init(
+        url: URL,
+        refreshDestination: @escaping @MainActor () async -> URL? = { nil },
+        onURLChange: @escaping (URL) -> Void = { _ in },
+        recover: Bool = true,
+        inset: Bool = false
+    ) {
+        self.inset = inset
+        _state = StateObject(wrappedValue: FeedbackWebState(
+            url: url,
+            refreshDestination: refreshDestination,
+            onURLChange: onURLChange,
+            recover: recover
+        ))
     }
 
     var body: some View {
         ZStack {
             WebViewSurface(webView: state.webView)
-                .ignoresSafeArea()
+                .ignoresSafeArea(edges: inset ? [] : .all)
 
             if state.isLoading && !state.hasContent {
-                Color.white.ignoresSafeArea()
+                Color.white.ignoresSafeArea(edges: inset ? [] : .all)
                 ProgressView().controlSize(.large)
                     .accessibilityLabel("网页加载中")
                     .accessibilityIdentifier("webViewSpinner")
@@ -43,17 +56,28 @@ final class FeedbackWebState: NSObject, ObservableObject, WKNavigationDelegate {
     @Published private(set) var isLoading = true
     @Published private(set) var hasContent = false
     private let initialURL: URL
+    private let onURLChange: (URL) -> Void
+    private let allowsRecovery: Bool
     private let refreshDestination: @MainActor () async -> URL?
     private(set) var recoveryTask: Task<Void, Never>?
     private var isActive = true
     private var started = false
+    private var rejectedHTTP = false
     private var progressObservation: NSKeyValueObservation?
     private let refreshControl = UIRefreshControl()
 
-    init(url: URL, webView: WKWebView = WKWebView(), refreshDestination: @escaping @MainActor () async -> URL?) {
+    init(
+        url: URL,
+        webView: WKWebView = WKWebView(),
+        refreshDestination: @escaping @MainActor () async -> URL?,
+        onURLChange: @escaping (URL) -> Void = { _ in },
+        recover: Bool = true
+    ) {
         self.webView = webView
         initialURL = url
         self.refreshDestination = refreshDestination
+        self.onURLChange = onURLChange
+        allowsRecovery = recover
         super.init()
         webView.navigationDelegate = self
         webView.allowsBackForwardNavigationGestures = true
@@ -112,6 +136,18 @@ final class FeedbackWebState: NSObject, ObservableObject, WKNavigationDelegate {
         }
     }
 
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
+                 decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void) {
+        if navigationResponse.isForMainFrame,
+           let response = navigationResponse.response as? HTTPURLResponse,
+           (400...599).contains(response.statusCode) {
+            rejectedHTTP = true
+            decisionHandler(.cancel)
+            return
+        }
+        decisionHandler(.allow)
+    }
+
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         isLoading = true
         progress = 0
@@ -126,6 +162,9 @@ final class FeedbackWebState: NSObject, ObservableObject, WKNavigationDelegate {
         progress = 1
         isLoading = false
         refreshControl.endRefreshing()
+        if let url = webView.url, WebDestinationURL.parse(url.absoluteString) != nil {
+            onURLChange(url)
+        }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -143,7 +182,12 @@ final class FeedbackWebState: NSObject, ObservableObject, WKNavigationDelegate {
 
     private func handleFailure(_ error: Error) {
         let error = error as NSError
-        guard !(error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled) else {
+        if error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled {
+            if rejectedHTTP {
+                rejectedHTTP = false
+                recover()
+                return
+            }
             if !webView.isLoading {
                 isLoading = false
                 refreshControl.endRefreshing()
@@ -155,13 +199,18 @@ final class FeedbackWebState: NSObject, ObservableObject, WKNavigationDelegate {
 
     private func recover() {
         refreshControl.endRefreshing()
-        guard isActive, recoveryTask == nil else { return }
+        guard allowsRecovery, isActive, recoveryTask == nil else {
+            isLoading = false
+            refreshControl.endRefreshing()
+            return
+        }
         isLoading = false
         recoveryTask = Task { [weak self] in
             guard let self else { return }
             defer { self.recoveryTask = nil }
             guard let url = await self.refreshDestination(),
                   !Task.isCancelled, self.isActive else { return }
+            self.onURLChange(url)
             self.load(url)
         }
     }
@@ -180,6 +229,7 @@ private struct WebViewSurface: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView { webView }
     func updateUIView(_ webView: WKWebView, context: Context) {}
     static func dismantleUIView(_ webView: WKWebView, coordinator: ()) {
+        webView.scrollView.refreshControl?.endRefreshing()
         webView.navigationDelegate = nil
         webView.stopLoading()
     }

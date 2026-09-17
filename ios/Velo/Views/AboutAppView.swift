@@ -12,22 +12,35 @@ enum AppInformation {
         }
         return "版本 \(version)"
     }
+
+    static let aboutPageURL = URL(string: "https://juju1-pixel.github.io/velo/doc/about.html")!
 }
 
 struct AboutAppView: View {
     @State private var showFeedback = false
+    @State private var showAboutSite = false
 
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
                 appIdentity
-                Button { showFeedback = true } label: {
-                    Label("留言", systemImage: "square.and.pencil")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity).frame(minHeight: 48)
-                        .foregroundStyle(VeloTheme.onAccent)
-                        .background(VeloTheme.accent, in: RoundedRectangle(cornerRadius: 14))
-                }.accessibilityIdentifier("feedbackButton")
+                VStack(spacing: 12) {
+                    Button { showFeedback = true } label: {
+                        Label("留言", systemImage: "square.and.pencil")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity).frame(minHeight: 48)
+                            .foregroundStyle(VeloTheme.onAccent)
+                            .background(VeloTheme.accent, in: RoundedRectangle(cornerRadius: 14))
+                    }.accessibilityIdentifier("feedbackButton")
+                    Button { showAboutSite = true } label: {
+                        Label("关于我们", systemImage: "info.circle")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity).frame(minHeight: 48)
+                            .foregroundStyle(VeloTheme.accent)
+                            .background(VeloTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(VeloTheme.border, lineWidth: 1))
+                    }.accessibilityIdentifier("aboutUsButton")
+                }
                 VStack(alignment: .leading, spacing: 20) {
                     Text("专注此刻的速度").font(.headline)
                     detail("离线 GPS 测速", symbol: "satellite.fill",
@@ -67,6 +80,7 @@ struct AboutAppView: View {
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("aboutAppPage")
         .sheet(isPresented: $showFeedback) { FeedbackView() }
+        .fullScreenCover(isPresented: $showAboutSite) { AboutSiteCover() }
     }
 
     private var appIdentity: some View {
@@ -100,5 +114,30 @@ struct AboutAppView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }.accessibilityElement(children: .combine)
+    }
+}
+
+private struct AboutSiteCover: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            FeedbackWebView(
+                url: AppInformation.aboutPageURL,
+                onURLChange: { _ in },
+                recover: false,
+                inset: true
+            )
+            .navigationTitle("关于我们")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("关闭") { dismiss() }
+                        .accessibilityIdentifier("aboutUsClose")
+                }
+            }
+        }
+        .tint(VeloTheme.accent)
+        .preferredColorScheme(.light)
     }
 }

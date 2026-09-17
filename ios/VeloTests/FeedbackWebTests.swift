@@ -339,6 +339,40 @@ final class FeedbackWebTests: XCTestCase {
     }
 
     @MainActor
+    func testAboutPageFailureDoesNotRecoverOrChangeURL() async {
+        let webView = RecordingWebView()
+        var requests = 0
+        var changed: [URL] = []
+        let state = FeedbackWebState(
+            url: URL(string: "https://juju1-pixel.github.io/velo/doc/about.html")!,
+            webView: webView,
+            refreshDestination: {
+                requests += 1
+                return URL(string: "https://example.test/replaced")
+            },
+            onURLChange: { changed.append($0) },
+            recover: false
+        )
+        state.start()
+        state.webView(webView, didFailProvisionalNavigation: nil, withError: URLError(.cannotFindHost))
+        await state.recoveryTask?.value
+        state.webViewWebContentProcessDidTerminate(webView)
+        await state.recoveryTask?.value
+        XCTAssertEqual(requests, 0)
+        XCTAssertTrue(changed.isEmpty)
+        XCTAssertNil(state.recoveryTask)
+        XCTAssertEqual(webView.loadedURLs.map(\.absoluteString), ["https://juju1-pixel.github.io/velo/doc/about.html"])
+        XCTAssertFalse(state.isLoading)
+        state.stop()
+    }
+
+    func testAboutPageURLIsPublicHTTPS() {
+        XCTAssertEqual(AppInformation.aboutPageURL.scheme, "https")
+        XCTAssertEqual(AppInformation.aboutPageURL.absoluteString, "https://juju1-pixel.github.io/velo/doc/about.html")
+        XCTAssertNotNil(WebDestinationURL.parse(AppInformation.aboutPageURL.absoluteString))
+    }
+
+    @MainActor
     func testPullRefreshIgnoresBusyOrStoppedPageAndEndsOnCancellation() throws {
         let webView = RecordingWebView()
         let state = FeedbackWebState(url: webView.currentURL, webView: webView) { nil }
