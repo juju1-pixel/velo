@@ -9,4 +9,5 @@
 
 项目仅保留原生 iOS 工程，直接使用 Xcode 构建。
 
+关于我们：https://juju1-pixel.github.io/velo/doc/about.html  
 隐私政策：https://juju1-pixel.github.io/velo/doc/privacy.html
